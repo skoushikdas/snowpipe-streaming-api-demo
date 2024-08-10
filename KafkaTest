@@ -1,0 +1,137 @@
+Creating unit tests for a PySpark application that interacts with a Kerberos-secured Kafka cluster can be challenging due to the complexity of the environment. However, you can mock the Kafka interactions and focus on testing the PySpark logic. Below are some examples of unit tests using `unittest` and `pytest` frameworks.
+
+### 1. **Test Setup**
+
+Before writing the unit tests, ensure you have `pyspark`, `pytest`, and `unittest` installed.
+
+```bash
+pip install pyspark pytest
+```
+
+### 2. **Mocking Kafka and Spark**
+
+You can use `unittest.mock` to mock the Kafka DataFrame and the Spark session.
+
+### 3. **Sample Code to Test**
+
+Here’s the PySpark code snippet that will be tested:
+
+```python
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
+
+def process_kafka_stream(spark):
+    kafka_df = spark.readStream \
+        .format("kafka") \
+        .option("kafka.bootstrap.servers", "kafka-broker1:9092,kafka-broker2:9092") \
+        .option("subscribe", "input-topic") \
+        .option("kafka.security.protocol", "SASL_PLAINTEXT") \
+        .option("kafka.sasl.kerberos.service.name", "kafka") \
+        .load()
+
+    processed_df = kafka_df.selectExpr("CAST(value AS STRING) as json_value") \
+        .withColumn("new_value", col("json_value"))
+
+    return processed_df
+```
+
+### 4. **Unit Test Cases**
+
+#### Using `unittest`
+
+```python
+import unittest
+from unittest.mock import MagicMock
+from pyspark.sql import SparkSession
+from pyspark.sql import Row
+
+class TestKafkaStreamProcessing(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spark = SparkSession.builder \
+            .master("local[*]") \
+            .appName("UnitTest") \
+            .getOrCreate()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.spark.stop()
+
+    def test_process_kafka_stream(self):
+        # Mocking Kafka DataFrame
+        input_data = [Row(value='{"id": 1, "name": "test", "value": 100}')]
+        kafka_df = self.spark.createDataFrame(input_data)
+        
+        # Mocking Spark readStream
+        self.spark.readStream = MagicMock(return_value=kafka_df)
+
+        # Call the function to process the stream
+        processed_df = process_kafka_stream(self.spark)
+
+        # Check the schema of the processed DataFrame
+        self.assertIn("new_value", processed_df.columns)
+
+        # Check the content of the processed DataFrame
+        output_data = processed_df.collect()
+        self.assertEqual(output_data[0]["new_value"], '{"id": 1, "name": "test", "value": 100}')
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
+#### Using `pytest`
+
+```python
+import pytest
+from unittest.mock import MagicMock
+from pyspark.sql import SparkSession, Row
+
+@pytest.fixture(scope="module")
+def spark():
+    spark = SparkSession.builder \
+        .master("local[*]") \
+        .appName("pytest") \
+        .getOrCreate()
+    yield spark
+    spark.stop()
+
+def test_process_kafka_stream(spark):
+    # Mocking Kafka DataFrame
+    input_data = [Row(value='{"id": 1, "name": "test", "value": 100}')]
+    kafka_df = spark.createDataFrame(input_data)
+    
+    # Mocking Spark readStream
+    spark.readStream = MagicMock(return_value=kafka_df)
+
+    # Call the function to process the stream
+    processed_df = process_kafka_stream(spark)
+
+    # Check the schema of the processed DataFrame
+    assert "new_value" in processed_df.columns
+
+    # Check the content of the processed DataFrame
+    output_data = processed_df.collect()
+    assert output_data[0]["new_value"] == '{"id": 1, "name": "test", "value": 100}'
+```
+
+### 5. **Running the Tests**
+
+- For `unittest`, you can simply run the tests using:
+
+  ```bash
+  python -m unittest test_kafka_stream_processing.py
+  ```
+
+- For `pytest`, run:
+
+  ```bash
+  pytest test_kafka_stream_processing.py
+  ```
+
+### 6. **Explanation**
+
+- **Mocking Kafka DataFrame:** In both examples, the Kafka DataFrame is mocked to return a predefined set of rows. This allows testing the processing logic without needing a real Kafka cluster.
+- **Schema and Content Checks:** The unit tests validate that the processing function correctly modifies the DataFrame schema and content based on the input data.
+
+These unit tests focus on the PySpark logic, and by mocking the Kafka interactions, they ensure that your application behaves as expected without needing a full Kafka setup.

@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from pyspark.sql import SparkSession
+from pyspark.sql.types import StructType, StructField, StringType
 
 @pytest.fixture(scope="session")
 def spark():
@@ -12,6 +13,11 @@ def spark():
 @patch('pyspark.sql.SparkSession._jvm')
 @patch('pyspark.sql.streaming.DataStreamWriter.start')
 def test_custom_source(mock_start, mock_jvm, spark):
+    # Define a mock schema with at least one field
+    mock_schema = StructType([
+        StructField("column_name", StringType(), True)
+    ])
+    
     # Mock the JVM and custom source class
     mock_custom_source_class = MagicMock()
     mock_custom_source_instance = MagicMock()
@@ -24,11 +30,11 @@ def test_custom_source(mock_start, mock_jvm, spark):
     mock_custom_source_class.return_value = mock_custom_source_instance
     mock_custom_source_instance.getMessages.return_value = mock_messages_dataset_jvm
     
-    # Mock the schema method to return a schema for DataFrame creation
-    mock_messages_dataset_jvm.schema.return_value = spark._jsparkSession.emptyDataFrame().schema()
+    # Mock the schema method to return the mock schema
+    mock_messages_dataset_jvm.schema.return_value = mock_schema
     
     # Mock the PySpark DataFrame creation from the JVM Dataset<Row>
-    mock_df = spark.createDataFrame([], mock_messages_dataset_jvm.schema.return_value)
+    mock_df = spark.createDataFrame([], mock_schema)
     with patch('pyspark.sql.SparkSession.createDataFrame', return_value=mock_df) as mock_create_df:
         # Import the code under test
         from main import spark, jvm, messages_df, processed_df, query
@@ -36,7 +42,7 @@ def test_custom_source(mock_start, mock_jvm, spark):
         # Assertions to ensure the mocks were called as expected
         mock_custom_source_class.assert_called_once_with("parameter1", "parameter2")
         mock_custom_source_instance.getMessages.assert_called_once()
-        mock_create_df.assert_called_once_with(mock_messages_dataset_jvm, schema=mock_messages_dataset_jvm.schema())
+        mock_create_df.assert_called_once_with(mock_messages_dataset_jvm, schema=mock_schema)
         mock_start.assert_called_once()
 
         # Additional checks on the processed_df if needed

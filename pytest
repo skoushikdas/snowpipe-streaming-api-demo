@@ -1,0 +1,43 @@
+import pytest
+from unittest.mock import patch, MagicMock
+from pyspark.sql import SparkSession
+
+@pytest.fixture(scope="session")
+def spark():
+    return SparkSession.builder \
+        .master("local[2]") \
+        .appName("unit-tests") \
+        .getOrCreate()
+
+@patch('pyspark.sql.SparkSession._jvm')
+@patch('pyspark.sql.streaming.DataStreamWriter.start')
+def test_custom_source(mock_start, mock_jvm, spark):
+    # Mock the JVM and custom source class
+    mock_custom_source_class = MagicMock()
+    mock_custom_source_instance = MagicMock()
+    
+    # Mock the behavior of getMessages to return a mocked Dataset<Row>
+    mock_messages_dataset_jvm = MagicMock()
+    
+    # Setup the return values for the mocked objects
+    mock_jvm.your.package.CustomSource = mock_custom_source_class
+    mock_custom_source_class.return_value = mock_custom_source_instance
+    mock_custom_source_instance.getMessages.return_value = mock_messages_dataset_jvm
+    
+    # Mock the schema method to return a schema for DataFrame creation
+    mock_messages_dataset_jvm.schema.return_value = spark._jsparkSession.emptyDataFrame().schema()
+    
+    # Mock the PySpark DataFrame creation from the JVM Dataset<Row>
+    mock_df = spark.createDataFrame([], mock_messages_dataset_jvm.schema.return_value)
+    with patch('pyspark.sql.SparkSession.createDataFrame', return_value=mock_df) as mock_create_df:
+        # Import the code under test
+        from main import spark, jvm, messages_df, processed_df, query
+
+        # Assertions to ensure the mocks were called as expected
+        mock_custom_source_class.assert_called_once_with("parameter1", "parameter2")
+        mock_custom_source_instance.getMessages.assert_called_once()
+        mock_create_df.assert_called_once_with(mock_messages_dataset_jvm, schema=mock_messages_dataset_jvm.schema())
+        mock_start.assert_called_once()
+
+        # Additional checks on the processed_df if needed
+        assert processed_df.columns == ['column_name', 'processed_message']

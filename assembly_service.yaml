@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyspark-ui-service
+  labels:
+    app: pyspark
+spec:
+  type: NodePort  # Use NodePort to expose the UI on a port accessible from outside the cluster
+  ports:
+    - port: 4040
+      targetPort: 4040
+      protocol: TCP
+      nodePort: 30080  # External port for accessing the UI
+  selector:
+    app: pyspark

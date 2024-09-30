@@ -1,101 +1,47 @@
-To work with a Kerberos-secured Kafka cluster using a PySpark consumer, you'll need to configure both Kerberos authentication and Spark to correctly interact with Kafka. Here's a detailed guide to setting up your PySpark application to consume data from a Kerberized Kafka cluster:
+# src/models/java_service.py
+from py4j.java_gateway import java_import
+from pyspark import SparkContext
+from src.models.spark_session_singleton import SparkSessionSingleton
+import logging
 
-### 1. **Kerberos Authentication Setup**
+logger = logging.getLogger("JAVA_SERVICE")
 
-   - **Keytab and Principal:**
-     Ensure you have access to the keytab file and the principal associated with your Kerberos setup.
+class JavaService:
+    def __init__(self, java_class_path: str):
+        """
+        Initializes the JavaService class and loads the specified Java class via Py4J.
+        :param java_class_path: The full path of the Java class to be imported (e.g., 'com.example.MyClass').
+        """
+        # Get the Spark session instance
+        self.spark = SparkSessionSingleton.get_instance()
+        self.jvm = self.spark._jvm
 
-     ```bash
-     kinit -kt /path/to/your.keytab your_principal@YOUR.REALM.COM
-     ```
+        # Import the specified Java class
+        java_import(self.jvm, java_class_path)
 
-   - **Kafka JAAS Configuration:**
-     You need to create a JAAS configuration file that specifies how Kafka should authenticate using Kerberos. Here's an example `kafka_jaas.conf`:
+        # Dynamically create an instance of the Java class
+        self.java_class = getattr(self.jvm, java_class_path)()
 
-     ```properties
-     KafkaClient {
-       com.sun.security.auth.module.Krb5LoginModule required
-       useKeyTab=true
-       keyTab="/path/to/your.keytab"
-       storeKey=true
-       useTicketCache=false
-       principal="your_principal@YOUR.REALM.COM";
-     };
-     ```
+    def invoke_method(self, method_name: str, *args):
+        """
+        Calls the specified method from the Java class with the provided arguments.
+        :param method_name: Name of the method to call in the Java class.
+        :param args: Arguments to pass to the Java method.
+        :return: PySpark DataFrame if the Java method returns a DataFrame.
+        """
+        try:
+            logger.info(f"Calling method {method_name} from {self.java_class}")
 
-   - **Kafka Properties:**
-     Update the Kafka properties to point to the JAAS configuration file and enable Kerberos. You can typically set this in your Spark job’s configuration:
+            # Get the Java method and invoke it with the provided arguments
+            method = getattr(self.java_class, method_name)
+            java_result = method(*args)
 
-     ```python
-     spark.conf.set("spark.executor.extraJavaOptions", "-Djava.security.auth.login.config=/path/to/kafka_jaas.conf")
-     spark.conf.set("spark.driver.extraJavaOptions", "-Djava.security.auth.login.config=/path/to/kafka_jaas.conf")
-     ```
+            # If the method returns a DataFrame, convert it to PySpark DataFrame
+            if isinstance(java_result, self.jvm.org.apache.spark.sql.DataFrame):
+                return self.spark.createDataFrame(java_result)
 
-### 2. **Configure PySpark Application**
+            return java_result
 
-   - **Create a Spark Session:**
-     Ensure your Spark session is configured to use the JAAS configuration and includes the necessary Kafka parameters.
-
-     ```python
-     from pyspark.sql import SparkSession
-
-     spark = SparkSession.builder \
-         .appName("KerberizedKafkaConsumer") \
-         .config("spark.executor.extraJavaOptions", "-Djava.security.auth.login.config=/path/to/kafka_jaas.conf") \
-         .config("spark.driver.extraJavaOptions", "-Djava.security.auth.login.config=/path/to/kafka_jaas.conf") \
-         .getOrCreate()
-     ```
-
-   - **Kafka Consumer Configuration:**
-     Include the necessary Kerberos parameters in your Kafka consumer configuration within the PySpark streaming job.
-
-     ```python
-     kafka_params = {
-         "kafka.bootstrap.servers": "kafka-broker1:9092,kafka-broker2:9092",
-         "subscribe": "input-topic",
-         "kafka.security.protocol": "SASL_PLAINTEXT",
-         "kafka.sasl.kerberos.service.name": "kafka"
-     }
-
-     kafka_df = spark.readStream \
-         .format("kafka") \
-         .options(**kafka_params) \
-         .load()
-     ```
-
-### 3. **Process the Kafka Stream**
-
-   - Once the Kafka DataFrame is loaded, you can proceed to process the stream data as usual in PySpark. For example:
-
-     ```python
-     from pyspark.sql.functions import col
-
-     # Assuming your Kafka messages are JSON and you want to parse them
-     processed_df = kafka_df.selectExpr("CAST(value AS STRING) as json_value") \
-         .withColumn("new_value", col("json_value"))
-
-     query = processed_df.writeStream \
-         .format("console") \
-         .start()
-
-     query.awaitTermination()
-     ```
-
-### 4. **Handling Security Concerns**
-   - **Ensure Proper Ticket Renewal:**
-     If your job runs for a long time, you may need to handle Kerberos ticket renewal to avoid authentication failures.
-
-   - **Checkpoints and Offsets:**
-     Use checkpoints in Spark to manage offsets and ensure reliable processing, especially in a Kerberized environment where errors can occur due to ticket expiration or network issues.
-
-### 5. **Submit the PySpark Job**
-
-   - When submitting your PySpark job, ensure that the necessary Kerberos credentials and configurations are passed along:
-
-     ```bash
-     spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.0.1 your_pyspark_script.py
-     ```
-
-   - Ensure that the JAAS configuration file is accessible from all the nodes in the Spark cluster.
-
-By carefully setting up your PySpark consumer with the correct Kerberos authentication, you can securely consume data from a Kafka cluster protected by Kerberos.
+        except Exception as e:
+            logger.error(f"Error invoking Java method {method_name}: {e}")
+            raise

@@ -1,47 +1,18 @@
-# src/models/java_service.py
-from py4j.java_gateway import java_import
-from pyspark import SparkContext
-from src.models.spark_session_singleton import SparkSessionSingleton
-import logging
-
-logger = logging.getLogger("JAVA_SERVICE")
-
-class JavaService:
-    def __init__(self, java_class_path: str):
-        """
-        Initializes the JavaService class and loads the specified Java class via Py4J.
-        :param java_class_path: The full path of the Java class to be imported (e.g., 'com.example.MyClass').
-        """
-        # Get the Spark session instance
-        self.spark = SparkSessionSingleton.get_instance()
-        self.jvm = self.spark._jvm
-
-        # Import the specified Java class
-        java_import(self.jvm, java_class_path)
-
-        # Dynamically create an instance of the Java class
-        self.java_class = getattr(self.jvm, java_class_path)()
-
-    def invoke_method(self, method_name: str, *args):
-        """
-        Calls the specified method from the Java class with the provided arguments.
-        :param method_name: Name of the method to call in the Java class.
-        :param args: Arguments to pass to the Java method.
-        :return: PySpark DataFrame if the Java method returns a DataFrame.
-        """
-        try:
-            logger.info(f"Calling method {method_name} from {self.java_class}")
-
-            # Get the Java method and invoke it with the provided arguments
-            method = getattr(self.java_class, method_name)
-            java_result = method(*args)
-
-            # If the method returns a DataFrame, convert it to PySpark DataFrame
-            if isinstance(java_result, self.jvm.org.apache.spark.sql.DataFrame):
-                return self.spark.createDataFrame(java_result)
-
-            return java_result
-
-        except Exception as e:
-            logger.error(f"Error invoking Java method {method_name}: {e}")
-            raise
+from pyspark.sql import SparkSession
+from ingestion.utils.logging. log_util import Logger
+class SparkSessionSingleton (classmethod):
+instance = None
+@classmethod
+def get spark session (cls) -> object:
+logger
+=
+Logger.getlogger ("SPARK-SESSION")
+if cls. instance is None:
+cls.
+instance
+=
+SparkSession.builder \
+.appName ("kafka-snowflake-pipeline") \
+.getOrCreate()
+logger.info("Single Spark Session created
+return cls. instance

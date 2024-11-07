@@ -1,18 +1,33 @@
+import unittest
+from unittest.mock import patch
 from pyspark.sql import SparkSession
-from ingestion.utils.logging. log_util import Logger
-class SparkSessionSingleton (classmethod):
-instance = None
-@classmethod
-def get spark session (cls) -> object:
-logger
-=
-Logger.getlogger ("SPARK-SESSION")
-if cls. instance is None:
-cls.
-instance
-=
-SparkSession.builder \
-.appName ("kafka-snowflake-pipeline") \
-.getOrCreate()
-logger.info("Single Spark Session created
-return cls. instance
+from ingestion.session.spark.session_singleton import SparkSessionSingleton
+
+class TestSparkSessionSingleton(unittest.TestCase):
+
+    @patch('ingestion.utils.logging.log_util.Logger.get_logger')
+    @patch('pyspark.sql.SparkSession.builder.getOrCreate')
+    def test_get_spark_session(self, mock_get_or_create, mock_get_logger):
+        # Set up mocks
+        mock_spark_instance = mock_get_or_create.return_value
+        mock_logger = mock_get_logger.return_value
+
+        # Call the method to get the Spark session
+        spark_session = SparkSessionSingleton.get_spark_session()
+
+        # Assertions to verify coverage
+        mock_get_logger.assert_called_once_with("SPARK-SESSION")
+        mock_get_or_create.assert_called_once()
+        mock_logger.info.assert_called_once_with("Single Spark Session created")
+
+        # Ensure the returned session is the same as the mocked instance
+        self.assertEqual(spark_session, mock_spark_instance)
+
+    def test_singleton_behavior(self):
+        # Ensure that subsequent calls return the same instance
+        first_instance = SparkSessionSingleton.get_spark_session()
+        second_instance = SparkSessionSingleton.get_spark_session()
+        self.assertIs(first_instance, second_instance)
+
+if __name__ == '__main__':
+    unittest.main()

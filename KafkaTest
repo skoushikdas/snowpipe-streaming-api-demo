@@ -1,137 +1,48 @@
-Creating unit tests for a PySpark application that interacts with a Kerberos-secured Kafka cluster can be challenging due to the complexity of the environment. However, you can mock the Kafka interactions and focus on testing the PySpark logic. Below are some examples of unit tests using `unittest` and `pytest` frameworks.
-
-### 1. **Test Setup**
-
-Before writing the unit tests, ensure you have `pyspark`, `pytest`, and `unittest` installed.
-
-```bash
-pip install pyspark pytest
-```
-
-### 2. **Mocking Kafka and Spark**
-
-You can use `unittest.mock` to mock the Kafka DataFrame and the Spark session.
-
-### 3. **Sample Code to Test**
-
-Here’s the PySpark code snippet that will be tested:
-
-```python
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import col
-
-def process_kafka_stream(spark):
-    kafka_df = spark.readStream \
-        .format("kafka") \
-        .option("kafka.bootstrap.servers", "kafka-broker1:9092,kafka-broker2:9092") \
-        .option("subscribe", "input-topic") \
-        .option("kafka.security.protocol", "SASL_PLAINTEXT") \
-        .option("kafka.sasl.kerberos.service.name", "kafka") \
-        .load()
-
-    processed_df = kafka_df.selectExpr("CAST(value AS STRING) as json_value") \
-        .withColumn("new_value", col("json_value"))
-
-    return processed_df
-```
-
-### 4. **Unit Test Cases**
-
-#### Using `unittest`
-
-```python
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import patch, MagicMock
+from ingestion.session.spark.session_singleton import SparkSessionSingleton
+from ingestion.utils.logging.log_util import Logger
+from ingestion.load.snowflake.write_stream.write_stream import MessagesWriteStream
 from pyspark.sql import SparkSession
-from pyspark.sql import Row
+import sys
 
-class TestKafkaStreamProcessing(unittest.TestCase):
+class TestMainScript(unittest.TestCase):
 
-    @classmethod
-    def setUpClass(cls):
-        cls.spark = SparkSession.builder \
-            .master("local[*]") \
-            .appName("UnitTest") \
-            .getOrCreate()
+    @patch('ingestion.utils.logging.log_util.Logger.get_logger')
+    @patch('ingestion.load.snowflake.write_stream.write_stream.MessagesWriteStream.consume_messages')
+    @patch('ingestion.session.spark.session_singleton.SparkSessionSingleton.get_spark_session')
+    def test_main_function(self, mock_get_spark_session, mock_consume_messages, mock_get_logger):
+        # Mock instances
+        mock_logger = mock_get_logger.return_value
+        mock_spark_session = mock_get_spark_session.return_value
+        mock_spark_context = mock_spark_session.sparkContext
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.spark.stop()
+        # Run the main function
+        from main_script import main  # Import the main function
+        main(mock_spark_session, mock_logger)
 
-    def test_process_kafka_stream(self):
-        # Mocking Kafka DataFrame
-        input_data = [Row(value='{"id": 1, "name": "test", "value": 100}')]
-        kafka_df = self.spark.createDataFrame(input_data)
-        
-        # Mocking Spark readStream
-        self.spark.readStream = MagicMock(return_value=kafka_df)
+        # Assertions to verify code coverage
+        mock_spark_context.setLogLevel.assert_called_once_with("INFO")
+        mock_consume_messages.assert_called_once_with(mock_spark_context)
+        mock_logger.info.assert_any_call("In main jobs")
 
-        # Call the function to process the stream
-        processed_df = process_kafka_stream(self.spark)
+    @patch('ingestion.utils.logging.log_util.Logger.get_logger')
+    @patch('ingestion.session.spark.session_singleton.SparkSessionSingleton.get_spark_session')
+    def test_script_entry_point(self, mock_get_spark_session, mock_get_logger):
+        # Mock instances
+        mock_logger = mock_get_logger.return_value
+        mock_spark_session = mock_get_spark_session.return_value
 
-        # Check the schema of the processed DataFrame
-        self.assertIn("new_value", processed_df.columns)
+        # Simulate running the script as __main__
+        with patch('sys.argv', ['main_script.py']):
+            with patch('__main__.__name__', '__main__'):
+                import main_script  # Ensure your script is named 'main_script.py'
+                main_script.main(mock_spark_session, mock_logger)
 
-        # Check the content of the processed DataFrame
-        output_data = processed_df.collect()
-        self.assertEqual(output_data[0]["new_value"], '{"id": 1, "name": "test", "value": 100}')
+        # Assertions
+        mock_logger.info.assert_any_call(f"Pyspark version pipeline using: {mock_spark_session.version}")
+        mock_logger.info.assert_any_call(f"Python version pipeline using: {sys.version}")
+        mock_logger.info.assert_any_call("Pipeline started")
 
 if __name__ == '__main__':
     unittest.main()
-```
-
-#### Using `pytest`
-
-```python
-import pytest
-from unittest.mock import MagicMock
-from pyspark.sql import SparkSession, Row
-
-@pytest.fixture(scope="module")
-def spark():
-    spark = SparkSession.builder \
-        .master("local[*]") \
-        .appName("pytest") \
-        .getOrCreate()
-    yield spark
-    spark.stop()
-
-def test_process_kafka_stream(spark):
-    # Mocking Kafka DataFrame
-    input_data = [Row(value='{"id": 1, "name": "test", "value": 100}')]
-    kafka_df = spark.createDataFrame(input_data)
-    
-    # Mocking Spark readStream
-    spark.readStream = MagicMock(return_value=kafka_df)
-
-    # Call the function to process the stream
-    processed_df = process_kafka_stream(spark)
-
-    # Check the schema of the processed DataFrame
-    assert "new_value" in processed_df.columns
-
-    # Check the content of the processed DataFrame
-    output_data = processed_df.collect()
-    assert output_data[0]["new_value"] == '{"id": 1, "name": "test", "value": 100}'
-```
-
-### 5. **Running the Tests**
-
-- For `unittest`, you can simply run the tests using:
-
-  ```bash
-  python -m unittest test_kafka_stream_processing.py
-  ```
-
-- For `pytest`, run:
-
-  ```bash
-  pytest test_kafka_stream_processing.py
-  ```
-
-### 6. **Explanation**
-
-- **Mocking Kafka DataFrame:** In both examples, the Kafka DataFrame is mocked to return a predefined set of rows. This allows testing the processing logic without needing a real Kafka cluster.
-- **Schema and Content Checks:** The unit tests validate that the processing function correctly modifies the DataFrame schema and content based on the input data.
-
-These unit tests focus on the PySpark logic, and by mocking the Kafka interactions, they ensure that your application behaves as expected without needing a full Kafka setup.

@@ -1,49 +1,75 @@
-import pytest
+import unittest
 from unittest.mock import patch, MagicMock
-from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, StringType
+from py4j.java_gateway import JavaGateway
+from ingestion.session.spark.session_singleton import SparkSessionSingleton
+from your_module import JavaAdapter  # Import your class
 
-@pytest.fixture(scope="session")
-def spark():
-    return SparkSession.builder \
-        .master("local[2]") \
-        .appName("unit-tests") \
-        .getOrCreate()
+class Test(unittest.TestCase):
 
-@patch('pyspark.sql.SparkSession._jvm')
-@patch('pyspark.sql.streaming.DataStreamWriter.start')
-def test_custom_source(mock_start, mock_jvm, spark):
-    # Define a mock schema with at least one field
-    mock_schema = StructType([
-        StructField("column_name", StringType(), True)
-    ])
-    
-    # Mock the JVM and custom source class
-    mock_custom_source_class = MagicMock()
-    mock_custom_source_instance = MagicMock()
-    
-    # Mock the behavior of getMessages to return a mocked Dataset<Row>
-    mock_messages_dataset_jvm = MagicMock()
-    
-    # Setup the return values for the mocked objects
-    mock_jvm.your.package.CustomSource = mock_custom_source_class
-    mock_custom_source_class.return_value = mock_custom_source_instance
-    mock_custom_source_instance.getMessages.return_value = mock_messages_dataset_jvm
-    
-    # Mock the schema method to return the mock schema
-    mock_messages_dataset_jvm.schema.return_value = mock_schema
-    
-    # Mock the PySpark DataFrame creation from the JVM Dataset<Row>
-    mock_df = spark.createDataFrame([], mock_schema)
-    with patch('pyspark.sql.SparkSession.createDataFrame', return_value=mock_df) as mock_create_df:
-        # Import the code under test
-        from main import spark, jvm, messages_df, processed_df, query
+    @patch.object(SparkSessionSingleton, 'get_spark_session')
+    @patch('py4j.java_gateway.java_import')
+    def test_java_adapter_initialization(self, mock_java_import, mock_get_spark_session):
+        # Mock SparkSession and JVM
+        mock_spark_session = MagicMock()
+        mock_get_spark_session.return_value = mock_spark_session
+        mock_spark_session.jvm = MagicMock(spec=JavaGateway)
 
-        # Assertions to ensure the mocks were called as expected
-        mock_custom_source_class.assert_called_once_with("parameter1", "parameter2")
-        mock_custom_source_instance.getMessages.assert_called_once()
-        mock_create_df.assert_called_once_with(mock_messages_dataset_jvm, schema=mock_schema)
-        mock_start.assert_called_once()
+        # Mock the Java class import
+        mock_java_class_path = "com.example.JavaClass"
+        mock_java_import.return_value = None
 
-        # Additional checks on the processed_df if needed
-        assert processed_df.columns == ['column_name', 'processed_message']
+        # Initialize the JavaAdapter
+        adapter = JavaAdapter(mock_java_class_path)
+
+        # Test if the Spark session was retrieved from the singleton
+        mock_get_spark_session.assert_called_once()
+
+        # Test if the JVM was correctly accessed
+        mock_spark_session.jvm.java_import.assert_called_once_with(mock_spark_session.jvm, mock_java_class_path)
+
+        # Test if the Java class was accessed correctly
+        mock_spark_session.jvm.getattr.assert_called_once_with(mock_spark_session.jvm, mock_java_class_path)
+
+    @patch.object(SparkSessionSingleton, 'get_spark_session')
+    def test_invoke_method_success(self, mock_get_spark_session):
+        # Mock SparkSession and Java class
+        mock_spark_session = MagicMock()
+        mock_get_spark_session.return_value = mock_spark_session
+        mock_java_class = MagicMock()
+        mock_spark_session.jvm.getattr.return_value = mock_java_class
+        mock_method = MagicMock(return_value="Success")
+        mock_java_class.some_method = mock_method
+
+        # Initialize the JavaAdapter
+        adapter = JavaAdapter("com.example.JavaClass")
+
+        # Invoke the method
+        result = adapter.invoke_method("some_method", "arg1", "arg2")
+
+        # Assert that the method was called correctly
+        mock_method.assert_called_once_with("arg1", "arg2")
+        self.assertEqual(result, "Success")
+
+    @patch.object(SparkSessionSingleton, 'get_spark_session')
+    def test_invoke_method_error_handling(self, mock_get_spark_session):
+        # Mock SparkSession and Java class
+        mock_spark_session = MagicMock()
+        mock_get_spark_session.return_value = mock_spark_session
+        mock_java_class = MagicMock()
+        mock_spark_session.jvm.getattr.return_value = mock_java_class
+        mock_method = MagicMock(side_effect=Exception("Java method failed"))
+        mock_java_class.some_method = mock_method
+
+        # Initialize the JavaAdapter
+        adapter = JavaAdapter("com.example.JavaClass")
+
+        # Invoke the method and assert error handling
+        with self.assertRaises(Exception):
+            adapter.invoke_method("some_method", "arg1", "arg2")
+
+        # Test that the error was logged
+        mock_method.assert_called_once_with("arg1", "arg2")
+        mock_spark_session.jvm.logger.error.assert_called_with("Error invoking Java method some_method: Java method failed")
+
+if __name__ == "__main__":
+    unittest.main()

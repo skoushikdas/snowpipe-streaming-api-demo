@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Check if the file is provided
+if [ $# -ne 1 ]; then
+    echo "Usage: $0 <filename>"
+    exit 1
+fi
+
+FILE="$1"
+HEADER_FILE="header_trailer.txt"
+DATA_FILE="data.txt"
+
+# Check if file exists and is not empty
+if [ ! -f "$FILE" ] || [ ! -s "$FILE" ]; then
+    echo "Error: File missing or empty"
+    exit 1
+fi
+
+# Extract header (first line) and trailer (last line)
+(head -n 1 "$FILE"; tail -n 1 "$FILE") > "$HEADER_FILE"
+
+# Extract data (excluding first and last lines)
+sed '1d;$d' "$FILE" > "$DATA_FILE"
+
+echo "Header & trailer saved in $HEADER_FILE"
+echo "Data saved in $DATA_FILE"

@@ -1,46 +1,38 @@
 #!/bin/bash
 
-FILE="$1"  # e.g., original/filename.csv or original/filename.csv.gz
+FILE="$1"
 
-if [ ! -f "$FILE" ]; then
-    echo "Error: File $FILE does not exist."
-    exit 1
-fi
-
-# Extract filename and extension
+# Extract base name and extension
 BASENAME=$(basename "$FILE")
-DIRNAME=$(dirname "$FILE")
+EXT="${BASENAME##*.}"
+FILENAME_NO_GZ="${BASENAME%.gz}"
+FILENAME_NO_EXT="${FILENAME_NO_GZ%.csv}"
 
-# Remove .gz if exists
-if [[ "$BASENAME" == *.gz ]]; then
-    FILENAME_NO_GZ="${BASENAME%.gz}"
-    IS_GZ=true
-else
-    FILENAME_NO_GZ="$BASENAME"
-    IS_GZ=false
-fi
+# Define file paths
+HEADER_FILE="original\\${FILENAME_NO_GZ}.hdt"
+OUTPUT_FILE="unprocess\\${FILENAME_NO_GZ}"
 
-# Extract header file path
-HEADER_FILE="$DIRNAME/${FILENAME_NO_GZ}.hdt"
+echo "Processing: $FILE"
+echo "Header will be saved to: $HEADER_FILE"
+echo "Data will be saved to: $OUTPUT_FILE"
 
-# Output data file (always in 'unprocess' dir, same file name and maybe gz)
-OUTPUT_DIR="unprocess"
-OUTPUT_FILE="$OUTPUT_DIR/$FILENAME_NO_GZ"
+if [[ "$EXT" == "gz" ]]; then
+    # Process gzipped CSV file
+    gunzip -c "$FILE" > "/tmp/${FILENAME_NO_GZ}"
 
-# Handle header and data extraction
-if [ "$IS_GZ" = true ]; then
     # Extract header
-    gunzip -c "$FILE" | head -n 1 > "$HEADER_FILE"
-    # Extract data (without first and last lines)
-    gunzip -c "$FILE" | sed '1d;$d' | gzip > "${OUTPUT_FILE}.gz"
+    head -n 1 "/tmp/${FILENAME_NO_GZ}" > "$HEADER_FILE"
+
+    # Remove header and footer and re-gzip the output
+    sed '1d;$d' "/tmp/${FILENAME_NO_GZ}" | gzip > "${OUTPUT_FILE}.gz"
+
+    rm "/tmp/${FILENAME_NO_GZ}"
 else
+    # Extract header
     head -n 1 "$FILE" > "$HEADER_FILE"
+
+    # Remove header and footer and save as CSV
     sed '1d;$d' "$FILE" > "$OUTPUT_FILE"
 fi
 
-echo "✅ Header saved to: $HEADER_FILE"
-if [ "$IS_GZ" = true ]; then
-    echo "✅ Data saved to: ${OUTPUT_FILE}.gz"
-else
-    echo "✅ Data saved to: $OUTPUT_FILE"
-fi
+echo "Done!"

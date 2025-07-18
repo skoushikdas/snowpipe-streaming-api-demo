@@ -1,49 +1,28 @@
 #!/bin/bash
 
-set -e
-
 INPUT_FILE="$1"
+FILENAME=$(basename "$INPUT_FILE")                  # filename.csv or filename.csv.gz
+FILENAME_NO_GZ="${FILENAME%.gz}"                    # filename.csv
+FILENAME_NO_EXT="${FILENAME_NO_GZ%.*}"              # filename
+INPUT_DIR=$(dirname "$INPUT_FILE")
+OUTPUT_DIR="unprocessed"
 
-if [[ ! -f "$INPUT_FILE" ]]; then
-  echo "❌ File not found: $INPUT_FILE"
-  exit 1
-fi
+mkdir -p "$OUTPUT_DIR"
 
-# Get base filename (without full dir)
-FILENAME=$(basename "$INPUT_FILE")  # e.g., file.csv or file.csv.gz
-EXT="${FILENAME##*.}"
+# If input is .gz
+if [[ "$INPUT_FILE" == *.gz ]]; then
+  # Extract header
+  gunzip -c "$INPUT_FILE" | head -1 > "$INPUT_FILE.hdt"
 
-# Extract filename.csv (removing .gz if present)
-if [[ "$FILENAME" == *.gz ]]; then
-  CSV_FILENAME="${FILENAME%.gz}"  # file.csv
+  # Extract middle data (without header/footer), then gzip again
+  gunzip -c "$INPUT_FILE" | sed '1d;$d' > "$OUTPUT_DIR/$FILENAME_NO_GZ"
+  gzip -f "$OUTPUT_DIR/$FILENAME_NO_GZ"
+
+# If input is plain CSV
 else
-  CSV_FILENAME="$FILENAME"
+  # Extract header
+  head -1 "$INPUT_FILE" > "$INPUT_FILE.hdt"
+
+  # Extract middle data only
+  sed '1d;$d' "$INPUT_FILE" > "$OUTPUT_DIR/$FILENAME"
 fi
-
-# Output paths
-HEADER_OUT="original/${CSV_FILENAME}.hdt"
-DATA_OUT="unprocessed/${CSV_FILENAME}"
-
-# Ensure output dirs exist
-mkdir -p original
-mkdir -p unprocessed
-
-# Handle .gz vs normal file
-TMPFILE=$(mktemp /tmp/temp_csv_XXXXXX)
-
-if [[ "$FILENAME" == *.gz ]]; then
-  cp "$INPUT_FILE" "$TMPFILE.gz"
-  gunzip -f "$TMPFILE.gz"  # Produces $TMPFILE
-else
-  cp "$INPUT_FILE" "$TMPFILE"
-fi
-
-# Extract header and data
-head -n 1 "$TMPFILE" > "$HEADER_OUT"
-sed '1d;$d' "$TMPFILE" > "$DATA_OUT"
-
-# Cleanup
-rm -f "$TMPFILE"
-
-echo "✅ Header saved to: $HEADER_OUT"
-echo "✅ Data saved to:   $DATA_OUT"

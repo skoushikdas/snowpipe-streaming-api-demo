@@ -13,22 +13,17 @@ fi
 if [[ "$INPUT_FILE" == *.gz ]]; then
   BASENAME="${INPUT_FILE%.gz}"
 
-  # Unzip and process
+  # Unzip to temp file
   gunzip -c "$INPUT_FILE" > "${BASENAME}_tmp.csv"
 
-  # Extract parts
+  # Header
   head -n 1 "${BASENAME}_tmp.csv" > "${INPUT_FILE}.hdt"
+  # Footer
   tail -n 1 "${BASENAME}_tmp.csv" > "${INPUT_FILE}.fdt"
+  # Data (remove header and footer)
+  sed '1d;$d' "${BASENAME}_tmp.csv" > "${BASENAME}"
 
-  # Extract data (excluding header and footer)
-  TOTAL_LINES=$(wc -l < "${BASENAME}_tmp.csv")
-  if [[ "$TOTAL_LINES" -gt 2 ]]; then
-    tail -n +2 "${BASENAME}_tmp.csv" | head -n $((TOTAL_LINES - 2)) > "${BASENAME}"
-  else
-    > "${BASENAME}"
-  fi
-
-  # Zip back the data file
+  # Re-compress data file (same name as input, minus .gz)
   gzip -f "${BASENAME}"
 
   # Cleanup
@@ -36,17 +31,16 @@ if [[ "$INPUT_FILE" == *.gz ]]; then
 
   echo "✅ Done: Data -> ${BASENAME}.gz | Header -> ${INPUT_FILE}.hdt | Footer -> ${INPUT_FILE}.fdt"
 
-# Handle plain CSV (no zip/unzip needed)
+# Handle plain CSV (not compressed)
 else
+  # Header
   head -n 1 "$INPUT_FILE" > "${INPUT_FILE}.hdt"
+  # Footer
   tail -n 1 "$INPUT_FILE" > "${INPUT_FILE}.fdt"
+  # Data (in-place overwrite without header/footer)
+  TMP_DATA="${INPUT_FILE}.tmp"
+  sed '1d;$d' "$INPUT_FILE" > "$TMP_DATA"
+  mv "$TMP_DATA" "$INPUT_FILE"
 
-  TOTAL_LINES=$(wc -l < "$INPUT_FILE")
-  if [[ "$TOTAL_LINES" -gt 2 ]]; then
-    tail -n +2 "$INPUT_FILE" | head -n $((TOTAL_LINES - 2)) > "$INPUT_FILE.data"
-  else
-    > "$INPUT_FILE.data"
-  fi
-
-  echo "✅ Done: Data -> $INPUT_FILE.data | Header -> ${INPUT_FILE}.hdt | Footer -> ${INPUT_FILE}.fdt"
+  echo "✅ Done: Data -> $INPUT_FILE | Header -> ${INPUT_FILE}.hdt | Footer -> ${INPUT_FILE}.fdt"
 fi

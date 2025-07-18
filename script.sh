@@ -1,38 +1,52 @@
 #!/bin/bash
 
-FILE="$1"
+set -e
 
-# Extract base name and extension
-BASENAME=$(basename "$FILE")
-EXT="${BASENAME##*.}"
-FILENAME_NO_GZ="${BASENAME%.gz}"
-FILENAME_NO_EXT="${FILENAME_NO_GZ%.csv}"
+INPUT_FILE="$1"
 
-# Define file paths
-HEADER_FILE="original\\${FILENAME_NO_GZ}.hdt"
-OUTPUT_FILE="unprocess\\${FILENAME_NO_GZ}"
-
-echo "Processing: $FILE"
-echo "Header will be saved to: $HEADER_FILE"
-echo "Data will be saved to: $OUTPUT_FILE"
-
-if [[ "$EXT" == "gz" ]]; then
-    # Process gzipped CSV file
-    gunzip -c "$FILE" > "/tmp/${FILENAME_NO_GZ}"
-
-    # Extract header
-    head -n 1 "/tmp/${FILENAME_NO_GZ}" > "$HEADER_FILE"
-
-    # Remove header and footer and re-gzip the output
-    sed '1d;$d' "/tmp/${FILENAME_NO_GZ}" | gzip > "${OUTPUT_FILE}.gz"
-
-    rm "/tmp/${FILENAME_NO_GZ}"
-else
-    # Extract header
-    head -n 1 "$FILE" > "$HEADER_FILE"
-
-    # Remove header and footer and save as CSV
-    sed '1d;$d' "$FILE" > "$OUTPUT_FILE"
+if [[ ! -f "$INPUT_FILE" ]]; then
+  echo "❌ File not found: $INPUT_FILE" >&2
+  exit 1
 fi
 
-echo "Done!"
+# Handle .gz (compressed CSV)
+if [[ "$INPUT_FILE" == *.gz ]]; then
+  BASENAME="${INPUT_FILE%.gz}"
+
+  # Unzip and process
+  gunzip -c "$INPUT_FILE" > "${BASENAME}_tmp.csv"
+
+  # Extract parts
+  head -n 1 "${BASENAME}_tmp.csv" > "${INPUT_FILE}.hdt"
+  tail -n 1 "${BASENAME}_tmp.csv" > "${INPUT_FILE}.fdt"
+
+  # Extract data (excluding header and footer)
+  TOTAL_LINES=$(wc -l < "${BASENAME}_tmp.csv")
+  if [[ "$TOTAL_LINES" -gt 2 ]]; then
+    tail -n +2 "${BASENAME}_tmp.csv" | head -n $((TOTAL_LINES - 2)) > "${BASENAME}"
+  else
+    > "${BASENAME}"
+  fi
+
+  # Zip back the data file
+  gzip -f "${BASENAME}"
+
+  # Cleanup
+  rm -f "${BASENAME}_tmp.csv"
+
+  echo "✅ Done: Data -> ${BASENAME}.gz | Header -> ${INPUT_FILE}.hdt | Footer -> ${INPUT_FILE}.fdt"
+
+# Handle plain CSV (no zip/unzip needed)
+else
+  head -n 1 "$INPUT_FILE" > "${INPUT_FILE}.hdt"
+  tail -n 1 "$INPUT_FILE" > "${INPUT_FILE}.fdt"
+
+  TOTAL_LINES=$(wc -l < "$INPUT_FILE")
+  if [[ "$TOTAL_LINES" -gt 2 ]]; then
+    tail -n +2 "$INPUT_FILE" | head -n $((TOTAL_LINES - 2)) > "$INPUT_FILE.data"
+  else
+    > "$INPUT_FILE.data"
+  fi
+
+  echo "✅ Done: Data -> $INPUT_FILE.data | Header -> ${INPUT_FILE}.hdt | Footer -> ${INPUT_FILE}.fdt"
+fi

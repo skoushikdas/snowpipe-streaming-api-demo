@@ -1,46 +1,49 @@
 #!/bin/bash
-
 set -e
 
 INPUT_FILE="$1"
 
 if [[ ! -f "$INPUT_FILE" ]]; then
-  echo "❌ File not found: $INPUT_FILE" >&2
+  echo "❌ File not found: $INPUT_FILE"
   exit 1
 fi
 
-# Handle .gz (compressed CSV)
-if [[ "$INPUT_FILE" == *.gz ]]; then
-  BASENAME="${INPUT_FILE%.gz}"
+INPUT_DIR=$(dirname "$INPUT_FILE")
+INPUT_NAME=$(basename "$INPUT_FILE")
 
-  # Unzip to temp file
-  gunzip -c "$INPUT_FILE" > "${BASENAME}_tmp.csv"
+# Handle .gz case
+if [[ "$INPUT_NAME" == *.gz ]]; then
+  BASE_NAME="${INPUT_NAME%.gz}"
+  TMP_FILE=$(mktemp)
+  gunzip -c "$INPUT_FILE" > "$TMP_FILE"
 
-  # Header
-  head -n 1 "${BASENAME}_tmp.csv" > "${INPUT_FILE}.hdt"
-  # Footer
-  tail -n 1 "${BASENAME}_tmp.csv" > "${INPUT_FILE}.fdt"
-  # Data (remove header and footer)
-  sed '1d;$d' "${BASENAME}_tmp.csv" > "${BASENAME}"
+  # Header + footer extraction
+  head -n 1 "$TMP_FILE" > "$INPUT_DIR/$BASE_NAME.hdt"
+  tail -n 1 "$TMP_FILE" >> "$INPUT_DIR/$BASE_NAME.hdt"
 
-  # Re-compress data file (same name as input, minus .gz)
-  gzip -f "${BASENAME}"
+  # Data-only extraction
+  sed '1d;$d' "$TMP_FILE" > "$INPUT_DIR/$BASE_NAME"
 
-  # Cleanup
-  rm -f "${BASENAME}_tmp.csv"
+  # Recompress data-only file
+  gzip -f "$INPUT_DIR/$BASE_NAME"
 
-  echo "✅ Done: Data -> ${BASENAME}.gz | Header -> ${INPUT_FILE}.hdt | Footer -> ${INPUT_FILE}.fdt"
+  rm "$TMP_FILE"
 
-# Handle plain CSV (not compressed)
+  echo "✅ Extracted: $INPUT_DIR/$BASE_NAME.hdt"
+  echo "✅ Data file (gz): $INPUT_DIR/$BASE_NAME.gz"
+
 else
-  # Header
-  head -n 1 "$INPUT_FILE" > "${INPUT_FILE}.hdt"
-  # Footer
-  tail -n 1 "$INPUT_FILE" > "${INPUT_FILE}.fdt"
-  # Data (in-place overwrite without header/footer)
-  TMP_DATA="${INPUT_FILE}.tmp"
-  sed '1d;$d' "$INPUT_FILE" > "$TMP_DATA"
-  mv "$TMP_DATA" "$INPUT_FILE"
+  BASE_NAME="$INPUT_NAME"
 
-  echo "✅ Done: Data -> $INPUT_FILE | Header -> ${INPUT_FILE}.hdt | Footer -> ${INPUT_FILE}.fdt"
+  # Header + footer extraction
+  head -n 1 "$INPUT_FILE" > "$INPUT_DIR/$BASE_NAME.hdt"
+  tail -n 1 "$INPUT_FILE" >> "$INPUT_DIR/$BASE_NAME.hdt"
+
+  # Data-only overwrite
+  TMP_FILE=$(mktemp)
+  sed '1d;$d' "$INPUT_FILE" > "$TMP_FILE"
+  mv "$TMP_FILE" "$INPUT_FILE"
+
+  echo "✅ Extracted: $INPUT_DIR/$BASE_NAME.hdt"
+  echo "✅ Data file (csv): $INPUT_FILE"
 fi
